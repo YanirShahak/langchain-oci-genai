@@ -10,6 +10,8 @@ export class JsonServerEventsIterator {
 
   _textDecoder: TextDecoder;
 
+  _buffer: string = "";
+
   constructor(sourceStream: ReadableStream<Uint8Array>) {
     this._eventsStream =
       IterableReadableStream.fromReadableStream(sourceStream);
@@ -18,16 +20,29 @@ export class JsonServerEventsIterator {
 
   async *[Symbol.asyncIterator](): AsyncIterator<unknown> {
     for await (const eventRawData of this._eventsStream) {
-      yield this._parseEvent(eventRawData);
+      const chunkText = this._textDecoder.decode(eventRawData, {
+        stream: true,
+      });
+
+      this._buffer += chunkText;
+
+      while (this._getFirstLine(this._buffer)) {
+        const firstLine = this._getFirstLine(this._buffer)!;
+        yield this._parseEvent(firstLine);
+        this._buffer = this._buffer.substring(firstLine.length).trimStart();
+      }
     }
   }
 
-  _parseEvent(eventRawData: Uint8Array): unknown {
-    const eventDataText: string = this._getEventDataText(eventRawData);
+  _getFirstLine(text: string): string | undefined {
+    const match = text.match(/^([^\r\n]*)[\r\n]+/);
+    return match ? match[0] : undefined;
+  }
+
+  _parseEvent(eventDataText: string): unknown {
     const eventData: unknown =
       JsonServerEventsIterator._getEventDataAsJson(eventDataText);
     JsonServerEventsIterator._assertEventData(eventData);
-
     return eventData;
   }
 
